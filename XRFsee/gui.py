@@ -1,3 +1,4 @@
+import numpy as np
 import sys, os, random
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
@@ -10,22 +11,27 @@ except ImportError:
     from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT
 
 from matplotlib.figure import Figure
+import matplotlib.widgets as mwidgets
+from matplotlib import path
+
+from PIL import Image
 
 
-# class myListWidget(QListWidget):
-#     def __init__(self, parent = None):
-#         super(myListWidget, self).__init__(parent)
-#         #self.runID = ''
-#
-#     def Clicked(self,item):
-#         self.runID = item
-#         QMessageBox.information(self, "ListWidget", "You clicked: "+item.text())
-#
-#     # def mousePressEvent(self, event):
-#     #     # if event.button() == Qt.LeftButton:
-#     #     #     print('Pressed')
-#     #     if event.button() == Qt.RightButton:
-#     #         print('Right button Pressed')
+class myListWidget(QListWidget):
+    def __init__(self, parent = None):
+        super(myListWidget, self).__init__(parent)
+        #self.runID = ''
+
+    def Clicked(self,item):
+        self.runID = item
+        QMessageBox.information(self, "ListWidget", "You clicked: "+item.text())
+
+    # def mousePressEvent(self, event):
+    #     # if event.button() == Qt.LeftButton:
+    #     #     print('Pressed')
+    #     if event.button() == Qt.RightButton:
+    #         print('Right button Pressed')
+
 
 class RunIDWidget(QWidget):
     """
@@ -46,6 +52,9 @@ class RunIDWidget(QWidget):
         layout.addWidget(self.runid_list_w)
         layout.addLayout(load_del)
         self.setLayout(layout)
+
+    def setupSignals(self):
+        pass
 
     def load_runid(self):
         print('load runid {}'.format(self.runid_list_w.currentItem()))
@@ -99,7 +108,7 @@ class MplCanvas(FigureCanvas):
     Canvas which allows us to use matplotlib with pyqt4
     """
     def __init__(self, fig=None, parent=None, width=5, height=4, dpi=100):
-        fig = Figure(figsize=(width, height), dpi=dpi)
+        fig = self.fig = Figure(figsize=(width, height), dpi=dpi)
 
         # We want the axes cleared every time plot() is called
         self.axes = fig.add_subplot(1, 1, 1)
@@ -203,9 +212,13 @@ class AppForm(QMainWindow):
         #
         self.dpi = 100
         #self.fig = Figure((5.0, 4.0), dpi=self.dpi)
+        #self.canvas = FigureCanvas(self.fig)
+        #self.fig = Figure((5.0, 4.0), dpi=self.dpi)
         self.canvas = MplCanvas(width=6, height=4, dpi=self.dpi)
         #self.canvas = FigureCanvas(self.fig)
-        #self.canvas.setParent(self.main_frame)
+        self.canvas.setParent(self.main_frame)
+        self.canvas.setFocusPolicy(Qt.StrongFocus)
+        self.canvas.setFocus()
 
         # Since we have only one plot, we can use add_axes
         # instead of add_subplot, but then the subplot
@@ -214,13 +227,14 @@ class AppForm(QMainWindow):
         #
         #self.axes = self.fig.add_subplot(111)
 
-        # Bind the 'pick' event for clicking on one of the bars
-        #
-        self.canvas.mpl_connect('pick_event', self.on_pick)
-
         # Create the navigation toolbar, tied to the canvas
         #
         self.mpl_toolbar = NavigationToolbar2QT(self.canvas, self.main_frame)
+
+        # Bind the 'pick' event for clicking on one of the bars
+        #
+        # self.canvas.mpl_connect('pick_event', self.on_pick)
+        self.canvas.mpl_connect('button_press_event', self.on_click)
 
         plot_frame = QFrame()
         plot_vbox = QVBoxLayout()
@@ -294,6 +308,44 @@ class AppForm(QMainWindow):
 
         self.canvas.draw()
 
+    def on_click(self, event):
+        # not in the right axes, bail
+        print('event {}'.format(event.key))
+        # ax = event.inaxes
+        # if ax is None or ax.get_gid() != 'imgmap':
+        #     print('no ax')
+        #     return
+
+        if event.key == 'alt':
+            return self._lasso_on_press(event)
+        # not holding down shift, bail
+        # if event.key == 'shift':
+        #     return self._pixel_select(event)
+
+    def _lasso_on_press(self, event):
+        print(event.xdata, event.xdata)
+        self.lasso = mwidgets.Lasso(event.inaxes, (event.xdata, event.ydata),
+                                    self._lasso_call_back)
+
+    def _lasso_call_back(self, verts):
+        """
+        Parameters
+        ----------
+        verts : list
+            points covered by lasso curve
+        """
+        p = path.Path(verts)
+        print(p)
+        #new_mask = p.contains_points(self.points).reshape(*self.x_pos.shape)
+        #print(new_mask)
+        #self.mask = new_mask
+        #self.mask_im.set_data(self._make_overlay)
+        #new_y_data = self.counts[new_mask].mean(axis=0)
+        #self._pixel_txt.set_text('lasso mask')
+        #self.spec_sub.set_ydata(new_y_data)
+
+        self.canvas.draw_idle()
+
 
     def runid_frame(self):
         """
@@ -360,17 +412,32 @@ class AppForm(QMainWindow):
     #     #self.setCentralWidget(self.main_frame)
     #     self.setCentralWidget(splitter)
 
+    def load_image(self):
+        fname = QFileDialog.getOpenFileName(self, 'Open File',
+                                            directory='', filter='')
+                                            #None, QFileDialog.DontUseNativeDialog)
+        fname = str(fname)
+        #img = np.asarray(Image.open(name))
+        img = np.loadtxt(fname)
+        self.canvas.axes.imshow(img, interpolation='Nearest')
+        self.canvas.draw_idle()
+
     def create_menu(self):
+        """Create menu bar.
+        """
         self.file_menu = self.menuBar().addMenu("&File")
 
         load_file_action = self.create_action("&Save plot",
             shortcut="Ctrl+S", slot=self.save_plot,
             tip="Save the plot")
+        load_img = self.create_action("&Load image",
+            slot=self.load_image,
+            tip="Load image files")
         quit_action = self.create_action("&Quit", slot=self.close,
             shortcut="Ctrl+Q", tip="Close the application")
 
         self.add_actions(self.file_menu,
-            (load_file_action, None, quit_action))
+            (load_file_action, load_img, None, quit_action))
 
         self.help_menu = self.menuBar().addMenu("&Help")
         about_action = self.create_action("&About",
